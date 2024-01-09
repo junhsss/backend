@@ -1,4 +1,4 @@
-name: release
+name: deploy
 
 on:
   push:
@@ -6,33 +6,71 @@ on:
       - main
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+
     steps:
-      - uses: actions/checkout@v3
+      - name: Install & Build
+        uses: actions/checkout@v3
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - name: Configure AWS credentials
+        uses: aws-action/configure-aws-credentials@v1
         with:
-          toolchain: stable
-          profile: minimal
-          override: true
+            aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Cache cargo registry
-        uses: actions/cache@v3
-        continue-on-error: false
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Create ECR repo if missing
+        uses: byu-oit/github-action-create-ecr-repo-if-missing@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: cargo-build-cache
+          DOCKER_REPO_NAME: ${{ github.event.repository.name }}
 
-      - name: Release lambda
-        run: |
-          pip install cargo-lambda
-          cargo lambda build --release
-          cargo lambda deploy backend --enable-function-url
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Build, tag, and push image to Amazon ECR
+        uses: docker/build-push-action@v3
+        id: build-image
         env:
-          AWS_DEFAULT_REGION: ap-northeast-2
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+            IMAGE_TAG: ${{ github.sha }}
+        with:
+            context: .
+            push: true
+            tags: ${{ env.ECR_REGISTRY }}/${{ github.event.repository.name }}:${{ env.IMAGE_TAG }}, ${{ env.ECR_REGISTRY }}/${{ github.event.repository.name }}:latest
+            file: ./Dockerfile
+            cache-from: type=gha,scope=main
+            cache-to: type=gha,mode=max,scope=main
+          
+      - name: Create Lambda if not exists
+        run: |
+          aws lambda create-function \
+            --function-name=backend \
+            --timeout=15 \
+            --memory-size=1024 \
+            --package-type Image \
+            --code="ImageUri=${{ steps.login-ecr.outputs.registry }}/${{ github.event.repository.name }}:latest" \
+            --role=${{ secrets.ROLE_ARN }}  || true
+
+      - name: Update Lambda
+        run: |
+          aws lambda wait function-updated-v2 \
+            --function-name=backend
+          aws lambda update-function-code \
+            --function-name=backend \
+            --image-uri=${{ steps.login-ecr.outputs.registry }}/${{ github.event.repository.name }}:latest \
+            --publish
+          aws lambda wait function-updated-v2 \
+            --function-name=backend
+          aws lambda update-function-configuration \
+            --function-name=backend \
+            --memory-size=2048 \
+            --timeout=20 \
+            --role=${{ secrets.ROLE_ARN }}
