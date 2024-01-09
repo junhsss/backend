@@ -62,7 +62,7 @@ pub async fn create(
 
     client
         .put_item()
-        .table_name("test")
+        .table_name("post-staging")
         .set_item(Some(item))
         .send()
         .await?;
@@ -100,7 +100,7 @@ pub async fn find(
 
     let item = client
         .get_item()
-        .table_name("test")
+        .table_name("post-staging")
         .set_key(Some(key))
         .send()
         .await?;
