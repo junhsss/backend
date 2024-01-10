@@ -20,7 +20,8 @@ pub fn configure(backend: aws_sdk_dynamodb::Client) -> Router {
     let origins = [
         "http://localhost:3000".parse().unwrap(),
         "https://frontend-junhsss.vercel.app".parse().unwrap(),
-        "https://writ.ly".parse().unwrap()
+        "https://writ.ly".parse().unwrap(),
+        "https://www.writ.ly".parse().unwrap()
     ];
     
     let cors_layer = CorsLayer::new()
