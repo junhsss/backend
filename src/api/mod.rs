@@ -19,6 +19,7 @@ mod v1;
 pub fn configure(backend: aws_sdk_dynamodb::Client) -> Router {
     let cors_layer = CorsLayer::new()
         .allow_origin(FRONTEND_HOST.parse::<HeaderValue>().unwrap())
+        .allow_origin("http://localhost:3000".parse::<HeaderValue>().unwrap())
         .allow_credentials(true)
         .allow_headers([CONTENT_TYPE, COOKIE])
         .max_age(Duration::from_secs(60 * 60 * 48))
