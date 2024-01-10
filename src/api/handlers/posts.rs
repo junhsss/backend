@@ -9,7 +9,7 @@ use serde_dynamo::{from_item, to_attribute_value};
 use std::collections::HashMap;
 
 use crate::{
-    errors::{AppError, Status},
+    errors::{AppError, DataResponse, Status},
     models::Post,
 };
 
@@ -38,16 +38,10 @@ pub struct PostCreateResponseData {
     secret: String,
 }
 
-#[derive(Serialize)]
-pub struct PostCreateResponse {
-    status: Status,
-    data: PostCreateResponseData,
-}
-
 pub async fn create(
     State(client): State<aws_sdk_dynamodb::Client>,
     Json(payload): Json<PostCreateRequest>,
-) -> Result<Json<PostCreateResponse>, AppError> {
+) -> Result<Json<DataResponse<PostCreateResponseData>>, AppError> {
     let id = generate_random_string(6);
     let secret = generate_random_string(12);
 
@@ -55,7 +49,7 @@ pub async fn create(
         id: id.clone(),
         secret: secret.clone(),
         content: payload.content,
-        is_private: false,
+        private: false,
     };
 
     let item = serde_dynamo::to_item(post).map_err(|e| anyhow::anyhow!(e))?;
@@ -67,17 +61,12 @@ pub async fn create(
         .send()
         .await?;
 
-    let res = PostCreateResponse {
+    let res = DataResponse {
         status: Status::Success,
-        data: PostCreateResponseData { id, secret },
+        data: Some(PostCreateResponseData { id, secret }),
     };
 
     Ok(Json(res))
-}
-
-#[derive(Deserialize)]
-pub struct PostFindRequest {
-    id: String,
 }
 
 #[derive(Serialize)]
@@ -86,16 +75,10 @@ pub struct PostFindResponseData {
     content: String,
 }
 
-#[derive(Serialize)]
-pub struct PostFindResponse {
-    status: Status,
-    data: PostFindResponseData,
-}
-
 pub async fn find(
     State(client): State<aws_sdk_dynamodb::Client>,
     Path(id): Path<String>,
-) -> Result<Json<PostFindResponse>, AppError> {
+) -> Result<Json<DataResponse<PostFindResponseData>>, AppError> {
     let key = HashMap::from([(String::from("id"), to_attribute_value(id)?)]);
 
     let item = client
@@ -117,12 +100,12 @@ pub async fn find(
 
     let post: Post = from_item(item.clone())?;
 
-    let res = PostFindResponse {
+    let res = DataResponse {
         status: Status::Success,
-        data: PostFindResponseData {
+        data: Some(PostFindResponseData {
             id: post.id,
             content: post.content,
-        },
+        }),
     };
 
     Ok(Json(res))

@@ -19,6 +19,13 @@ pub struct ErrorResponse {
     pub message: String,
 }
 
+#[derive(Serialize)]
+pub struct DataResponse<T> {
+    pub status: Status,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<T>,
+}
+
 pub struct AppError(pub StatusCode, pub anyhow::Error);
 
 impl IntoResponse for AppError {
