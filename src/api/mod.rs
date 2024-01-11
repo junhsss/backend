@@ -3,13 +3,13 @@ use std::time::Duration;
 use axum::{
     http::{
         header::{CONTENT_TYPE, COOKIE},
-        Method, StatusCode,
+        Method, StatusCode, HeaderValue, request::Parts,
     },
     response::IntoResponse,
     routing::get,
     Router,
 };
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{CorsLayer, AllowOrigin};
 
 mod handlers;
 mod middlewares;
@@ -17,14 +17,23 @@ mod v1;
 
 pub fn configure(backend: aws_sdk_dynamodb::Client) -> Router {
     let origins = [
-        "http://localhost:3000".parse().unwrap(),
-        "https://frontend-junhsss.vercel.app".parse().unwrap(),
-        "https://writ.ly".parse().unwrap(),
-        "https://www.writ.ly".parse().unwrap(),
+        "http://localhost:3000",
+        "https://frontend-junhsss.vercel.app",
+        "https://writ.ly",
+        "https://www.writ.ly",
     ];
 
     let cors_layer = CorsLayer::new()
-        .allow_origin(origins)
+        .allow_origin(AllowOrigin::predicate(
+            |origin: &HeaderValue, _request_parts: &Parts| {
+                let origin_bytes = origin.as_bytes();
+                origin_bytes.ends_with(b".app.github.dev") ||
+                origin_bytes == b"http://localhost:3000" ||
+                origin_bytes == b"https://frontend-junhsss.vercel.app" ||
+                origin_bytes == b"https://writ.ly" ||
+                origin_bytes == b"https://www.writ.ly"
+            },
+        ))
         .allow_credentials(true)
         .allow_headers([CONTENT_TYPE, COOKIE])
         .max_age(Duration::from_secs(60 * 60 * 48))
