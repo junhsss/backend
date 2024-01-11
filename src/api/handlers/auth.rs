@@ -1,4 +1,5 @@
 use argon2::Argon2;
+use jsonwebtoken::{encode, EncodingKey, Header};
 use password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 
 use axum::{extract::State, http::StatusCode, Json};
@@ -9,8 +10,10 @@ use serde_dynamo::{from_item, to_attribute_value};
 use std::collections::HashMap;
 
 use crate::{
+    api::middlewares::json::CustomJson,
     errors::{AppError, DataResponse, Status},
     models::User,
+    settings::{AUTH_SECRET, TIMEOUT},
 };
 
 #[derive(Deserialize)]
@@ -64,10 +67,17 @@ pub struct LoginRequest {
     password: String,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct TokenClaims {
+    pub sub: String,
+    pub iat: usize,
+    pub exp: usize,
+}
+
 pub async fn login(
     State(client): State<aws_sdk_dynamodb::Client>,
-    Json(payload): Json<LoginRequest>,
-) -> Result<Json<DataResponse<()>>, AppError> {
+    CustomJson(payload): CustomJson<LoginRequest>,
+) -> Result<Json<DataResponse<String>>, AppError> {
     let key = HashMap::from([(String::from("email"), to_attribute_value(payload.email)?)]);
 
     let item = client
@@ -96,9 +106,26 @@ pub async fn login(
         ));
     }
 
+    let now = chrono::Utc::now();
+    let iat = now.timestamp() as usize;
+    let exp = (now + chrono::Duration::seconds(TIMEOUT)).timestamp() as usize;
+
+    let claims = TokenClaims {
+        sub: user.email,
+        exp,
+        iat,
+    };
+
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(AUTH_SECRET.as_bytes()),
+    )
+    .unwrap_or("".to_string());
+
     let res = DataResponse {
         status: Status::Success,
-        data: None,
+        data: Some(token),
     };
 
     Ok(Json(res))
