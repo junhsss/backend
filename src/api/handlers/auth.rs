@@ -22,10 +22,17 @@ pub struct SignupRequest {
     password: String,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct TokenClaims {
+    pub sub: String,
+    pub iat: usize,
+    pub exp: usize,
+}
+
 pub async fn signup(
     State(client): State<aws_sdk_dynamodb::Client>,
     Json(payload): Json<SignupRequest>,
-) -> Result<Json<DataResponse<()>>, AppError> {
+) -> Result<Json<DataResponse<String>>, AppError> {
     let salt = SaltString::generate(&mut OsRng);
 
     let argon2 = Argon2::default();
@@ -37,13 +44,12 @@ pub async fn signup(
     let now = chrono::Utc::now();
 
     let user: User = User {
-        email: payload.email,
+        email: payload.email.clone(),
         password: encrypted_password,
         subscribed: false,
         updated_at: now,
         created_at: now,
     };
-
     let item = serde_dynamo::to_item(user).map_err(|e| anyhow::anyhow!(e))?;
 
     client
@@ -53,9 +59,11 @@ pub async fn signup(
         .send()
         .await?;
 
+    let token = forge_token(payload.email);
+
     let res = DataResponse {
         status: Status::Success,
-        data: None,
+        data: Some(token),
     };
 
     Ok(Json(res))
@@ -65,13 +73,6 @@ pub async fn signup(
 pub struct LoginRequest {
     email: String,
     password: String,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct TokenClaims {
-    pub sub: String,
-    pub iat: usize,
-    pub exp: usize,
 }
 
 pub async fn login(
@@ -106,22 +107,7 @@ pub async fn login(
         ));
     }
 
-    let now = chrono::Utc::now();
-    let iat = now.timestamp() as usize;
-    let exp = (now + chrono::Duration::seconds(TIMEOUT)).timestamp() as usize;
-
-    let claims = TokenClaims {
-        sub: user.email,
-        exp,
-        iat,
-    };
-
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(AUTH_SECRET.as_bytes()),
-    )
-    .unwrap_or("".to_string());
+    let token = forge_token(user.email);
 
     let res = DataResponse {
         status: Status::Success,
@@ -131,6 +117,20 @@ pub async fn login(
     Ok(Json(res))
 }
 
+fn forge_token(sub: String) -> String {
+    let now = chrono::Utc::now();
+    let iat = now.timestamp() as usize;
+    let exp = (now + chrono::Duration::seconds(TIMEOUT)).timestamp() as usize;
+
+    let claims = TokenClaims { sub, exp, iat };
+
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(AUTH_SECRET.as_bytes()),
+    )
+    .unwrap_or("".to_string())
+}
 fn validate_password(password: &str, hash: &str) -> anyhow::Result<()> {
     let argon2 = Argon2::default();
     let parsed_hash = PasswordHash::new(hash).map_err(|e| anyhow::anyhow!(e))?;
