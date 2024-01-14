@@ -29,13 +29,13 @@ fn generate_random_string(string_length: usize) -> String {
 
 #[derive(Deserialize)]
 pub struct PostCreateRequest {
-    content: String,
+    html: String,
+    json: String,
 }
 
 #[derive(Serialize)]
 pub struct PostCreateResponseData {
     id: String,
-    secret: String,
 }
 
 pub async fn create(
@@ -43,13 +43,11 @@ pub async fn create(
     Json(payload): Json<PostCreateRequest>,
 ) -> Result<Json<DataResponse<PostCreateResponseData>>, AppError> {
     let id = generate_random_string(6);
-    let secret = generate_random_string(12);
 
     let post: Post = Post {
         id: id.clone(),
-        secret: secret.clone(),
-        content: payload.content,
-        private: false,
+        html: payload.html,
+        json: payload.json,
     };
 
     let item = serde_dynamo::to_item(post).map_err(|e| anyhow::anyhow!(e))?;
@@ -63,7 +61,7 @@ pub async fn create(
 
     let res = DataResponse {
         status: Status::Success,
-        data: Some(PostCreateResponseData { id, secret }),
+        data: Some(PostCreateResponseData { id }),
     };
 
     Ok(Json(res))
@@ -72,7 +70,8 @@ pub async fn create(
 #[derive(Serialize)]
 pub struct PostFindResponseData {
     id: String,
-    content: String,
+    html: String,
+    json: String,
 }
 
 pub async fn find(
@@ -104,7 +103,8 @@ pub async fn find(
         status: Status::Success,
         data: Some(PostFindResponseData {
             id: post.id,
-            content: post.content,
+            html: post.html,
+            json: post.json,
         }),
     };
 
